@@ -1,0 +1,161 @@
+# Practical Machine Learning Course
+## Peer-graded Prediction Assignment 
+
+---
+title: "PML_Project"
+author: "Valentina Grouverman"
+date: "10/7/2018"
+output: html_document
+---
+
+### Project description
+
+"One thing that people regularly do is quantify how much of a particular activity they do,
+but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.
+
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases."
+
+## Background
+"Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. 
+
+They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+More information is available from the website here: 
+http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har 
+(see the section on the Weight Lifting Exercise Dataset)."
+
+## Data
+The training data for this project are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+The test data are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: 
+http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har. 
+
+### Downloading and reading data
+
+```{r loadingReadingData, echo=TRUE, cache=TRUE}
+## setwd("./DataScienceCoursera/Practical_Machine_Learning/Project")
+
+trainUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+trainFile = "./pml-training.csv"
+
+if(!file.exists("./pml-training.csv")){
+     download.file(trainUrl, destfile = trainFile) 
+}
+if(!exists("plm.training")){
+     plm_training <- read.csv("./pml-training.csv", 
+                              header = TRUE, 
+                              na.strings=c('NA','','#DIV/0!'))
+}
+# str(plm_training)
+dim(plm_training)
+
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+testFile = "./pml-testing.csv"
+
+## To download data zip file and read the data
+if(!file.exists("./pml-testing.csv")){
+     download.file(testUrl, destfile = testFile) 
+}
+if(!exists("plm.testing")){
+     plm_testing <- read.csv("./pml-testing.csv", 
+                             header = TRUE,
+                             na.strings=c('NA','','#DIV/0!'))
+}
+# str(plm_testing)
+# dim(plm_testing)
+```
+
+### Exploring and processing data
+
+To keep only the valid values and data we need for creating the models.
+```{r ExploreData, echo=TRUE, cache=TRUE}
+# names(plm_testing)
+# names(plm_training)
+# head(plm_training)
+
+plm_training <- plm_training[, colSums(is.na(plm_training)) == 0]
+plm_training <- plm_training[, -c(1:7)]
+dim(plm_training)
+table(plm_training$classe)
+
+plm_testing <- plm_testing[, colSums(is.na(plm_testing)) == 0]
+plm_testing <- plm_testing[, -c(1:7)]
+dim(plm_testing)
+```
+
+To create validation dataset out of the training one. Treat validation dataset as a test data to pick the best model performing on this dataset. 
+
+
+```{r CreateNewTrainTest, echo=TRUE, cache=TRUE, message=FALSE}
+library(lattice)
+library(ggplot2)
+library(caret)
+
+set.seed(65555)
+inTrain <- createDataPartition(y =plm_training$classe, 
+                               p=0.7, 
+                               list = FALSE)
+newTraining <- plm_training[inTrain,]
+newTesting <- plm_training[-inTrain,]
+dim(newTraining)
+dim(newTesting)
+```
+
+### Decision Tree model
+```{r DecisionTreeModel, echo=TRUE, cache=TRUE, message=FALSE}
+library(rpart)
+library(rpart.plot)
+
+modDT <- rpart(classe ~ ., data = newTraining, method = "class")
+
+rpart.plot(modDT, 
+           main = "Decision Tree Diagram", 
+           extra = 103, 
+           under = TRUE, 
+           faclen = 0)
+
+predictDT <- predict(modDT, newdata = newTesting, type="class")
+confusionMatrix(predictDT, newTesting$classe)
+```
+
+Accuracy of the decision tree model is 0.7302. I would like to try a boosted trees model next and see if it does a better job predicting classe value in the newTesting dataset.
+
+### Boosted Trees model
+```{r BoostedTreesModel, echo=TRUE, cache=TRUE, message=FALSE}
+modBST <- train(classe ~., 
+                method = "gbm",
+                data=newTraining,
+                verbose = FALSE)
+plot(modBST)
+predictBST <- predict(modBST, newdata = newTesting)
+confusionMatrix(predictBST, newTesting$classe)
+```
+
+Boosting gets better accuracy; it's 0.9636. It looks like combining classifiers gives us a better result. Let's try a random forest models and see if it would gets us better or worst results.
+
+### Random forest model
+```{r RandomForestModel, echo=TRUE, cache=TRUE, message=FALSE}
+library(randomForest)
+modRF <- randomForest(classe ~ . , 
+                      data = newTraining, 
+                      method = "class")
+# modRF
+
+predictRF <- predict(modRF, newdata = newTesting, type="class")
+confusionMatrix(predictRF, newTesting$classe)
+# compare predicted to real values
+RF_matrix <- as.matrix(table(predictRF, newTesting$classe))
+names(dimnames(RF_matrix)) <- c("Predicted", "Real Values")
+RF_matrix
+```
+Random forest model has accuracy equals 0.9944. This is the best from all the models.
+It makes sense to use this particular model in order to produce answers to the project quiz.
+
+### Course Project Prediction Quiz:
+```{r ProjectQuiz, echo=TRUE, cache=TRUE, message=FALSE}
+predict20cases <- predict(modRF, newdata = plm_testing, type="class")
+predict20cases
+```
